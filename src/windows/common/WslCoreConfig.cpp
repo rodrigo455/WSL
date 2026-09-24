@@ -49,6 +49,26 @@ void wsl::core::Config::ParseConfigFile(_In_opt_ LPCWSTR ConfigFilePath, _In_opt
         }
     };
 
+    auto parseAssignedDevices = [&](const char* name, const char* value, const wchar_t* fileName, unsigned long fileLine) {
+        // A comma-separated list of PCI device instance paths or location paths. The strings are
+        // opaque here: whether a device exists, and whether it has been dismounted from the host,
+        // can only be answered when the VM is created, so validation happens there.
+        for (const auto& device : wsl::shared::string::Split(std::string{value}, ','))
+        {
+            auto trimmed = device;
+            trimmed.erase(0, trimmed.find_first_not_of(" \t"));
+            const auto end = trimmed.find_last_not_of(" \t");
+            if (end == std::string::npos)
+            {
+                EMIT_USER_WARNING(shared::Localization::MessageDeviceAssignmentInvalidDevice(value, name, fileName, fileLine));
+                continue;
+            }
+
+            trimmed.erase(end + 1);
+            AssignedDevices.emplace_back(wsl::shared::string::MultiByteToWide(trimmed));
+        }
+    };
+
     auto parseDnsTunnelingIp = [&](const char* name, const char* value, const wchar_t* fileName, unsigned long fileLine) {
         // If the IP is invalid, DNS tunneling is disabled.
         in_addr address{};
@@ -117,6 +137,10 @@ void wsl::core::Config::ParseConfigFile(_In_opt_ LPCWSTR ConfigFilePath, _In_opt
         ConfigKey({ConfigSetting::DnsTunneling, ConfigSetting::Experimental::DnsTunneling}, EnableDnsTunneling, &DnsTunnelingConfigPresence),
         ConfigKey({ConfigSetting::Firewall, ConfigSetting::Experimental::Firewall}, enableFirewall, &FirewallConfigPresence),
         ConfigKey({ConfigSetting::AutoProxy, ConfigSetting::Experimental::AutoProxy}, EnableAutoProxy),
+        ConfigKey({ConfigSetting::DeviceAssignment, ConfigSetting::Experimental::DeviceAssignment}, EnableDeviceAssignment, &DeviceAssignmentPresence),
+        ConfigKey({ConfigSetting::DeviceAssignmentMmioGap, ConfigSetting::Experimental::DeviceAssignmentMmioGap}, DeviceAssignmentMmioGapMB),
+        ConfigKey(ConfigSetting::DeviceAssignmentDevices, ConfigKey::TParseMethod{parseAssignedDevices}),
+        ConfigKey(ConfigSetting::Experimental::DeviceAssignmentDevices, ConfigKey::TParseMethod{parseAssignedDevices}),
 
         // Experimental features.
         ConfigKey(ConfigSetting::Experimental::AutoMemoryReclaim, wsl::core::MemoryReclaimModes, MemoryReclaim),
@@ -346,6 +370,7 @@ void wsl::core::Config::Initialize(_In_opt_ HANDLE UserToken)
     applyOverride(wsl::windows::policies::c_allowCustomKernelCommandLineUserSetting, L"wsl2.kernelCommandLine", KernelCommandLine);
     applyOverride(wsl::windows::policies::c_allowKernelDebuggingUserSetting, L"wsl2.kernelDebugPort", KernelDebugPort);
     applyOverride(wsl::windows::policies::c_allowNestedVirtualizationUserSetting, L"wsl2.nestedVirtualization", EnableNestedVirtualization);
+    applyOverride(wsl::windows::policies::c_allowDeviceAssignmentUserSetting, L"wsl2.deviceAssignment", EnableDeviceAssignment);
 
     if (!wsl::windows::policies::IsFeatureAllowed(key.get(), wsl::windows::policies::c_allowDebugShellUserSetting))
     {
@@ -436,6 +461,20 @@ void wsl::core::Config::Initialize(_In_opt_ HANDLE UserToken)
         VALIDATE_CONFIG_OPTION(EnableSafeMode, NetworkingMode, NetworkingMode::None);
         VALIDATE_CONFIG_OPTION(EnableSafeMode, EnableDnsTunneling, false);
         VALIDATE_CONFIG_OPTION(EnableSafeMode, EnableAutoProxy, false);
+        VALIDATE_CONFIG_OPTION(EnableSafeMode, EnableDeviceAssignment, false);
+    }
+
+    // Listing devices without the opt-in does nothing, so say so rather than silently ignoring
+    // them. This also runs when safe mode or policy forced the opt-in off above.
+    if (!EnableDeviceAssignment && !AssignedDevices.empty())
+    {
+        EMIT_USER_WARNING(wsl::shared::Localization::MessageDeviceAssignmentRequiresOptIn());
+        AssignedDevices.clear();
+    }
+
+    if (!EnableDeviceAssignment)
+    {
+        VALIDATE_CONFIG_OPTION(!EnableDeviceAssignment, DeviceAssignmentMmioGapMB, 0);
     }
 
     if (!EnableVirtio)

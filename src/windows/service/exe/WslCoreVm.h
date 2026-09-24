@@ -217,6 +217,12 @@ private:
 
     std::wstring GenerateConfigJson();
 
+    //
+    // Returns the device instance paths of the configured assignable devices that are actually
+    // usable right now, warning about and skipping the ones that are not.
+    //
+    std::vector<std::wstring> ResolveAssignedDevices();
+
     static std::pair<int, LX_MINI_MOUNT_STEP> GetMountResult(_In_ wsl::shared::SocketChannel& Channel);
 
     void GrantVmWorkerProcessAccessToDisk(_In_ PCWSTR Disk, _In_opt_ HANDLE UserToken) const;

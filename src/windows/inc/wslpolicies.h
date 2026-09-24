@@ -28,6 +28,7 @@ inline constexpr auto c_allowCustomSystemDistroUserSetting = L"AllowSystemDistro
 inline constexpr auto c_allowCustomKernelCommandLineUserSetting = L"AllowKernelCommandLineUserSetting";
 inline constexpr auto c_allowDebugShellUserSetting = L"AllowDebugShell";
 inline constexpr auto c_allowNestedVirtualizationUserSetting = L"AllowNestedVirtualization";
+inline constexpr auto c_allowDeviceAssignmentUserSetting = L"AllowDeviceAssignment";
 inline constexpr auto c_allowKernelDebuggingUserSetting = L"AllowKernelDebugUserSetting";
 inline constexpr auto c_allowDiskMount = L"AllowDiskMount";
 inline constexpr auto c_allowCustomNetworkingModeUserSetting = L"AllowNetworkingModeUserSetting";

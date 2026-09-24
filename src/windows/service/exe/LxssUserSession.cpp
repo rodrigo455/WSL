@@ -20,6 +20,7 @@ Abstract:
 #include "notifications.h"
 #include "WslInstall.h"
 #include "WslCoreInstance.h"
+#include "DeviceAssignment.h"
 #include "resource.h"
 #include <winrt\Windows.ApplicationModel.Background.h>
 #include <nlohmann\json.hpp>
@@ -503,6 +504,56 @@ try
     RETURN_HR_IF(RPC_E_DISCONNECTED, !session);
 
     return session->CompactDistribution(DistroGuid);
+}
+CATCH_RETURN()
+
+HRESULT STDMETHODCALLTYPE LxssUserSession::EnumerateAssignableDevices(
+    _In_ BOOLEAN IncludeIneligible, _Out_ PULONG DeviceCount, _Out_ LXSS_ASSIGNABLE_DEVICE** Devices, _Out_ LXSS_ERROR_INFO* Error)
+try
+{
+    ServiceExecutionContext context(Error);
+
+    *DeviceCount = 0;
+    *Devices = nullptr;
+
+    // Listing is read-only and tells the caller nothing they could not learn from device manager,
+    // so it is not gated on elevation. Bind and unbind are.
+    const auto devices = wsl::windows::common::deviceassignment::Enumerate(!!IncludeIneligible);
+    const auto count = gsl::narrow_cast<ULONG>(devices.size());
+    auto result = wil::make_unique_cotaskmem<LXSS_ASSIGNABLE_DEVICE[]>(count);
+    for (ULONG index = 0; index < count; index += 1)
+    {
+        const auto& device = devices[index];
+        auto& entry = result[index];
+        entry = {};
+
+        switch (device.State)
+        {
+        case wsl::windows::common::deviceassignment::DeviceState::Disabled:
+            entry.State = LxssAssignableDeviceStateDisabled;
+            break;
+
+        case wsl::windows::common::deviceassignment::DeviceState::Unbound:
+            entry.State = LxssAssignableDeviceStateUnbound;
+            break;
+
+        default:
+            entry.State = LxssAssignableDeviceStateHost;
+            break;
+        }
+
+        // These fields are display and lookup strings, so truncating an absurdly long one is
+        // better than failing the whole enumeration.
+        wcsncpy_s(entry.DeviceInstancePath, device.DeviceInstancePath.c_str(), _TRUNCATE);
+        wcsncpy_s(entry.LocationPath, device.LocationPath.c_str(), _TRUNCATE);
+        wcsncpy_s(entry.FriendlyName, device.FriendlyName.c_str(), _TRUNCATE);
+        wcsncpy_s(entry.IneligibleReason, device.IneligibleReason.c_str(), _TRUNCATE);
+    }
+
+    *DeviceCount = count;
+    *Devices = result.release();
+
+    return S_OK;
 }
 CATCH_RETURN()
 
@@ -2973,18 +3024,51 @@ void LxssUserSessionImpl::_CreateVm()
 
         m_session.UserToken = m_userToken.get();
 
-        GUID vmId{};
-        THROW_IF_FAILED(CoCreateGuid(&vmId));
-
-        m_vmId.store(vmId);
-
         const auto weakSession = weak_from_this();
-        auto initializeDrvFs = [weakSession, vmId](HANDLE userToken) noexcept {
-            return s_InitializeDrvFs(weakSession, vmId, userToken);
+        auto createVm = [&](wsl::core::Config&& vmConfig) {
+            GUID vmId{};
+            THROW_IF_FAILED(CoCreateGuid(&vmId));
+
+            m_vmId.store(vmId);
+
+            auto initializeDrvFs = [weakSession, vmId](HANDLE userToken) noexcept {
+                return s_InitializeDrvFs(weakSession, vmId, userToken);
+            };
+
+            return WslCoreVm::Create(m_userToken, std::move(vmConfig), vmId, std::move(initializeDrvFs));
         };
 
+        // There is no way to ask the host whether it will run a VM with a VirtualPci device: HCS
+        // accepts the create document and only refuses when the device powers on during start. So
+        // an assigned device is tried for real, and if the VM fails to come up with it, the VM is
+        // created again without it. The copy is taken now because Create consumes the config. The
+        // retry gets a fresh VM ID rather than reusing one HCS may still be tearing down.
+        std::optional<wsl::core::Config> fallbackConfig;
+        if (config.EnableDeviceAssignment && !config.AssignedDevices.empty())
+        {
+            fallbackConfig.emplace(config);
+            fallbackConfig->EnableDeviceAssignment = false;
+            fallbackConfig->AssignedDevices.clear();
+            fallbackConfig->DeviceAssignmentMmioGapMB = 0;
+        }
+
         // Create the utility VM and register for callbacks.
-        m_utilityVm = WslCoreVm::Create(m_userToken, std::move(config), vmId, std::move(initializeDrvFs));
+        try
+        {
+            m_utilityVm = createVm(std::move(config));
+        }
+        catch (...)
+        {
+            if (!fallbackConfig.has_value())
+            {
+                throw;
+            }
+
+            LOG_CAUGHT_EXCEPTION();
+            EMIT_USER_WARNING(wsl::shared::Localization::MessageDeviceAssignmentNotSupported());
+
+            m_utilityVm = createVm(std::move(fallbackConfig.value()));
+        }
 
         if (m_httpProxyStateTracker)
         {

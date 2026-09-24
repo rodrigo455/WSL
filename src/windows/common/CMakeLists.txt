@@ -50,6 +50,7 @@ set(SOURCES
     WindowsUpdateIntegration.cpp
     WSLCContainerLauncher.cpp
     ConsommeNetworking.cpp
+    DeviceAssignment.cpp
     WSLCProcessLauncher.cpp
     WslClient.cpp
     WslCoreConfig.cpp
@@ -148,6 +149,7 @@ set(HEADERS
     WSLCContainerLauncher.h
     WSLCContainerEntry.h
     ConsommeNetworking.h
+    DeviceAssignment.h
     WSLCProcessLauncher.h
     WslClient.h
     WslCoreConfig.h
@@ -179,7 +181,9 @@ target_include_directories(common PUBLIC ${CMAKE_CURRENT_BINARY_DIR}/../service/
 # PUBLIC propagates them instead of making each consumer restate them.
 # yaml-cpp backs WSLCUserSettings, advapi32 the credential manager APIs used by
 # WinCredStorage, and Crypt32 the data protection APIs used by FileCredStorage.
-target_link_libraries(common PUBLIC ${HCS_LINK_LIBRARIES} ${MSI_LINK_LIBRARIES} VirtDisk.lib configfile yaml-cpp advapi32 Crypt32.lib)
+# cfgmgr32 and setupapi are for DeviceAssignment.cpp: PCI device enumeration and the devnode
+# disable that has to happen before a device can be dismounted from the host.
+target_link_libraries(common PUBLIC ${HCS_LINK_LIBRARIES} ${MSI_LINK_LIBRARIES} VirtDisk.lib configfile yaml-cpp advapi32 Crypt32.lib cfgmgr32.lib setupapi.lib)
 
 # WSLCUserSettings.cpp uses yaml-cpp headers.
 # The per-source include path and definition below only apply when the file is

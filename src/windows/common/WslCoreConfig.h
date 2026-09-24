@@ -21,15 +21,15 @@ Abstract:
 #define T_VALUE(c, n) TraceLoggingValue((c).n, #n)
 
 #define CONFIG_TELEMETRY(c) \
-    T_VALUE(c, BestEffortDnsParsing), T_VALUE(c, DhcpTimeout), T_VALUE(c, EnableAutoProxy), T_VALUE(c, EnableDebugConsole), \
-        T_VALUE(c, EnableDebugShell), T_VALUE(c, EnableDhcp), T_VALUE(c, EnableDnsProxy), T_VALUE(c, EnableDnsTunneling), \
-        T_VALUE(c, EnableGpuSupport), T_VALUE(c, EnableGuiApps), T_VALUE(c, EnableHardwarePerformanceCounters), \
-        T_VALUE(c, EnableHostAddressLoopback), T_VALUE(c, EnableHostFileSystemAccess), T_VALUE(c, EnableIpv6), \
-        T_VALUE(c, EnableLocalhostRelay), T_VALUE(c, EnableNestedVirtualization), T_VALUE(c, EnableSafeMode), \
-        T_VALUE(c, EnableSparseVhd), T_VALUE(c, EnableVirtio), T_VALUE(c, EnableVirtio9p), T_VALUE(c, EnableVirtioFs), \
-        T_VALUE(c, EnableVirtioFsAggregateShares), T_ENUM(c, FirewallConfigPresence), T_VALUE(c, IsolateDistroCgroup), \
-        T_VALUE(c, KernelBootTimeout), T_SET(c, KernelCommandLine), T_VALUE(c, KernelDebugPort), T_STRING(c, KernelModulesList), \
-        T_SET(c, KernelModulesPath), T_SET(c, KernelPath), T_VALUE(c, LoadDefaultKernelModules), \
+    T_VALUE(c, BestEffortDnsParsing), T_VALUE(c, DeviceAssignmentMmioGapMB), T_VALUE(c, DhcpTimeout), T_VALUE(c, EnableAutoProxy), \
+        T_VALUE(c, EnableDebugConsole), T_VALUE(c, EnableDebugShell), T_VALUE(c, EnableDeviceAssignment), T_VALUE(c, EnableDhcp), \
+        T_VALUE(c, EnableDnsProxy), T_VALUE(c, EnableDnsTunneling), T_VALUE(c, EnableGpuSupport), T_VALUE(c, EnableGuiApps), \
+        T_VALUE(c, EnableHardwarePerformanceCounters), T_VALUE(c, EnableHostAddressLoopback), T_VALUE(c, EnableHostFileSystemAccess), \
+        T_VALUE(c, EnableIpv6), T_VALUE(c, EnableLocalhostRelay), T_VALUE(c, EnableNestedVirtualization), \
+        T_VALUE(c, EnableSafeMode), T_VALUE(c, EnableSparseVhd), T_VALUE(c, EnableVirtio), T_VALUE(c, EnableVirtio9p), \
+        T_VALUE(c, EnableVirtioFs), T_VALUE(c, EnableVirtioFsAggregateShares), T_ENUM(c, FirewallConfigPresence), \
+        T_VALUE(c, IsolateDistroCgroup), T_VALUE(c, KernelBootTimeout), T_SET(c, KernelCommandLine), T_VALUE(c, KernelDebugPort), \
+        T_STRING(c, KernelModulesList), T_SET(c, KernelModulesPath), T_SET(c, KernelPath), T_VALUE(c, LoadDefaultKernelModules), \
         T_PRESENT(c, LoadKernelModulesPresence), T_VALUE(c, MaximumMemorySizeBytes), T_VALUE(c, MaximumProcessorCount), \
         T_ENUM(c, MemoryReclaim), T_VALUE(c, MemorySizeBytes), T_VALUE(c, MountDeviceTimeout), T_ENUM(c, NetworkingMode), \
         T_VALUE(c, ProcessorCount), T_SET(c, SwapFilePath), T_VALUE(c, SwapSizeBytes), T_VALUE(c, SwiotlbSizeBytes), \
@@ -279,6 +279,9 @@ namespace ConfigSetting {
     static constexpr auto LoadKernelModules = "wsl2.loadKernelModules";
     static constexpr auto LoadDefaultKernelModules = "wsl2.loadDefaultKernelModules";
     static constexpr auto IsolateDistroCgroup = "wsl2.isolateDistroCgroup";
+    static constexpr auto DeviceAssignment = "wsl2.deviceAssignment";
+    static constexpr auto DeviceAssignmentDevices = "wsl2.deviceAssignmentDevices";
+    static constexpr auto DeviceAssignmentMmioGap = "wsl2.deviceAssignmentMmioGapMB";
 
     namespace Experimental {
         static constexpr auto NetworkingMode = "experimental.networkingMode";
@@ -295,6 +298,9 @@ namespace ConfigSetting {
         static constexpr auto SetVersionDebug = "experimental.setVersionDebug";
         static constexpr auto Swiotlb = "experimental.swiotlb";
         static constexpr auto VirtioFsAggregateShares = "experimental.virtioFsAggregateShares";
+        static constexpr auto DeviceAssignment = "experimental.deviceAssignment";
+        static constexpr auto DeviceAssignmentDevices = "experimental.deviceAssignmentDevices";
+        static constexpr auto DeviceAssignmentMmioGap = "experimental.deviceAssignmentMmioGapMB";
 
     } // namespace Experimental
 } // namespace ConfigSetting
@@ -384,6 +390,18 @@ struct Config
     int MaxCrashDumpCount = 10;
     UINT64 SwiotlbSizeBytes = 0;
     bool IsolateDistroCgroup = true;
+
+    // Experimental PCI device assignment (DDA / vPCI). Opt-in and off by default: with the
+    // key absent nothing is probed, nothing is emitted into the VM configuration document,
+    // and nothing is logged.
+    bool EnableDeviceAssignment = false;
+    ConfigKeyPresence DeviceAssignmentPresence = ConfigKeyPresence::Absent;
+    // Device instance paths (PCIP\\VEN_...) or location paths (PCIROOT(0)#PCI(0100)) of the
+    // devices to hand to the utility VM. Each must already be dismounted from the host.
+    std::vector<std::wstring> AssignedDevices;
+    // Extra high MMIO space, in MB, on top of what WSL already reserves. An assigned device
+    // needs room for its BARs, and the gap can only be set when the VM is created.
+    int DeviceAssignmentMmioGapMB = 0;
 
     // Temporary config value to help root cause the truncated archive errors in SetVersion()
     bool SetVersionDebug = false;

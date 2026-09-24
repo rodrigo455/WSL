@@ -122,6 +122,7 @@ void PromptForKeyPressToExit()
 bool InstallPrerequisites(_In_ bool installWslOptionalComponent);
 int LaunchProcess(_In_opt_ LPCWSTR filename, _In_ int argc, _In_reads_(argc) LPCWSTR argv[], _In_ const LaunchProcessOptions& options);
 int ListDistributionsHelper(_In_ ListOptions options);
+int ListDevices(_In_ std::wstring_view commandLine);
 LaunchProcessOptions ParseLegacyArguments(_Inout_ std::wstring_view& commandLine);
 DWORD ParseVersionString(_In_ const std::wstring_view& versionString);
 int SetSparse(GUID& distroGuid, bool sparse, bool allowUnsafe);
@@ -706,6 +707,74 @@ int ListDistributions(_In_ std::wstring_view commandLine)
     parser.Parse();
 
     return ListDistributionsHelper(options);
+}
+
+int ListDevices(_In_ std::wstring_view commandLine)
+{
+    bool all = false;
+    ArgumentParser parser(std::wstring{commandLine}, WSL_BINARY_NAME);
+    parser.AddArgument(all, WSL_LIST_DEVICES_ARG_ALL_OPTION);
+    parser.Parse();
+
+    wsl::windows::common::SvcComm service;
+    const auto devices = service.EnumerateAssignableDevices(all);
+    if (devices.empty())
+    {
+        wsl::windows::common::wslutil::PrintMessage(wsl::shared::Localization::MessageNoAssignableDevices());
+        return -1;
+    }
+
+    // Size the first column to its widest value so the location paths line up.
+    size_t nameLength = wcslen(WSL_LIST_DEVICES_HEADER_DEVICE);
+    size_t locationLength = wcslen(WSL_LIST_DEVICES_HEADER_LOCATION);
+    for (const auto& device : devices)
+    {
+        // A device with no driver bound has no friendly name, so fall back to something the user
+        // can still pass back to --bind-device.
+        const auto name = device.FriendlyName[0] != L'\0' ? device.FriendlyName : device.DeviceInstancePath;
+        nameLength = std::max(nameLength, wcslen(name));
+        locationLength = std::max(locationLength, wcslen(device.LocationPath));
+    }
+
+    std::wstring formatString(L"%-");
+    formatString += std::to_wstring(nameLength + 2);
+    formatString += L"s%-";
+    formatString += std::to_wstring(locationLength + 2);
+    formatString += L"s%s\n";
+
+    wprintf(formatString.c_str(), WSL_LIST_DEVICES_HEADER_DEVICE, WSL_LIST_DEVICES_HEADER_LOCATION, WSL_LIST_DEVICES_HEADER_STATE);
+    for (const auto& device : devices)
+    {
+        const auto name = device.FriendlyName[0] != L'\0' ? device.FriendlyName : device.DeviceInstancePath;
+        auto state = L"Host";
+        switch (device.State)
+        {
+        case LxssAssignableDeviceStateDisabled:
+            state = L"Disabled";
+            break;
+
+        case LxssAssignableDeviceStateUnbound:
+            state = L"Unbound";
+            break;
+
+        default:
+            break;
+        }
+
+        // --all is the only way an ineligible device gets here, and the reason is the entire point
+        // of asking for it.
+        std::wstring status{state};
+        if (device.IneligibleReason[0] != L'\0')
+        {
+            status += L" (";
+            status += device.IneligibleReason;
+            status += L")";
+        }
+
+        wprintf(formatString.c_str(), name, device.LocationPath, status.c_str());
+    }
+
+    return 0;
 }
 
 int ListDistributionsHelper(_In_ ListOptions options)
@@ -1675,6 +1744,11 @@ int WslMain(_In_ std::wstring_view commandLine)
         else if ((argument == WSL_LIST_ARG) || (argument == WSL_LIST_ARG_LONG))
         {
             return ListDistributions(commandLine);
+        }
+        else if (argument == WSL_LIST_DEVICES_ARG)
+        {
+            // N.B. The argument is deliberately not consumed: ArgumentParser skips its first token.
+            return ListDevices(commandLine);
         }
         else if ((argument == WSL_SET_DEFAULT_DISTRO_ARG) || (argument == WSL_SET_DEFAULT_DISTRO_ARG_LEGACY) || (argument == WSL_SET_DEFAULT_DISTRO_ARG_LONG))
         {

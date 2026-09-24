@@ -505,6 +505,50 @@ struct VirtualPMemController
     NLOHMANN_DEFINE_TYPE_INTRUSIVE_ONLY_SERIALIZE(VirtualPMemController, Devices, MaximumCount, MaximumSizeBytes, Backing);
 };
 
+//
+// A single PCI function handed to the guest. Exactly one of the two paths is set: HCS rejects a
+// PCIROOT(0)#PCI(0100) location path in DeviceInstancePath with ERROR_INVALID_DATA, and vice versa.
+//
+struct VirtualPciFunction
+{
+    std::optional<std::wstring> DeviceInstancePath;
+    std::optional<std::wstring> LocationPath;
+};
+
+inline void to_json(nlohmann::json& j, const VirtualPciFunction& function)
+{
+    j = nlohmann::json::object();
+
+    OMIT_IF_EMPTY(j, function, DeviceInstancePath);
+    OMIT_IF_EMPTY(j, function, LocationPath);
+}
+
+struct VirtualPciDevice
+{
+    std::vector<VirtualPciFunction> Functions;
+
+    NLOHMANN_DEFINE_TYPE_INTRUSIVE_ONLY_SERIALIZE(VirtualPciDevice, Functions);
+};
+
+//
+// Fills in whichever of the two fields matches the shape of the path the caller supplied.
+// A location path always begins with "PCIROOT("; a device instance path does not.
+//
+inline VirtualPciFunction MakeVirtualPciFunction(_In_ PCWSTR DevicePath)
+{
+    VirtualPciFunction function{};
+    if (std::wstring_view{DevicePath}.starts_with(L"PCIROOT("))
+    {
+        function.LocationPath = DevicePath;
+    }
+    else
+    {
+        function.DeviceInstancePath = DevicePath;
+    }
+
+    return function;
+}
+
 struct Devices
 {
     std::optional<VirtioSerial> VirtioSerial;
@@ -514,6 +558,12 @@ struct Devices
     HvSocket HvSocket;
     std::map<std::string, Scsi> Scsi;
     std::optional<VirtualPMemController> VirtualPMem;
+
+    //
+    // Assigned PCI devices, keyed by an arbitrary instance GUID. Unlike Scsi there is no
+    // controller node: each device is a top-level entry.
+    //
+    std::map<std::string, VirtualPciDevice> VirtualPci;
 };
 
 inline void to_json(nlohmann::json& j, const Devices& devices)
@@ -527,6 +577,16 @@ inline void to_json(nlohmann::json& j, const Devices& devices)
 
     OMIT_IF_EMPTY(j, devices, VirtioSerial);
     OMIT_IF_EMPTY(j, devices, VirtualPMem);
+
+    //
+    // Emitted only when a device is actually assigned. An empty "VirtualPci":{} could be rejected
+    // by a host that does not understand the field, which would break VM creation for everyone who
+    // never asked for device assignment.
+    //
+    if (!devices.VirtualPci.empty())
+    {
+        j["VirtualPci"] = devices.VirtualPci;
+    }
 }
 
 struct VirtualMachine

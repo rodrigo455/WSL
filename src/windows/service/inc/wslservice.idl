@@ -83,6 +83,27 @@ struct _LXSS_ENUMERATE_INFO {
     WCHAR DistroName[257];
 } LXSS_ENUMERATE_INFO, *PLXSS_ENUMERATE_INFO;
 
+//
+// Where a PCI device currently lives. Host means Windows owns it, Disabled means its devnode has
+// been stopped but it has not been handed to the assignable pool yet, and Unbound means it is in
+// that pool and can be given to a VM.
+//
+typedef
+enum _LxssAssignableDeviceState {
+    LxssAssignableDeviceStateHost = 0,
+    LxssAssignableDeviceStateDisabled = 1,
+    LxssAssignableDeviceStateUnbound = 2
+} LxssAssignableDeviceState;
+
+typedef
+struct _LXSS_ASSIGNABLE_DEVICE {
+    LxssAssignableDeviceState State;
+    WCHAR DeviceInstancePath[512];
+    WCHAR LocationPath[512];
+    WCHAR FriendlyName[257];
+    WCHAR IneligibleReason[128];
+} LXSS_ASSIGNABLE_DEVICE, *PLXSS_ASSIGNABLE_DEVICE;
+
 typedef
 struct _LXSS_ERROR_INFO {
     ULONG Flags;
@@ -350,6 +371,15 @@ interface ILxssUserSession : IUnknown
 
     HRESULT CompactDistribution(
         [in] LPCGUID DistroGuid,
+        [in, out] LXSS_ERROR_INFO* Error);
+
+    //
+    // N.B. New methods must be appended: the order of this interface is its wire format.
+    //
+    HRESULT EnumerateAssignableDevices(
+        [in] BOOLEAN IncludeIneligible,
+        [out] ULONG* DeviceCount,
+        [out, size_is(, *DeviceCount)] LXSS_ASSIGNABLE_DEVICE** Devices,
         [in, out] LXSS_ERROR_INFO* Error);
 };
 

@@ -24,6 +24,7 @@ Abstract:
 #include "WslCoreFirewallSupport.h"
 #include "DnsResolver.h"
 #include "ConsommeNetworking.h"
+#include "DeviceAssignment.h"
 
 #include <TraceLoggingProvider.h>
 
@@ -1461,6 +1462,36 @@ void WslCoreVm::FreeLun(_In_ ULONG lun)
     m_lunBitmap.set(lun, false);
 }
 
+std::vector<std::wstring> WslCoreVm::ResolveAssignedDevices()
+{
+    std::vector<std::wstring> devices;
+    if (!m_vmConfig.EnableDeviceAssignment || m_vmConfig.AssignedDevices.empty())
+    {
+        return devices;
+    }
+
+    // A device has to already be out of the host's hands: assignment is not allowed to steal
+    // hardware from Windows behind the user's back, and an unbind can only be done by an
+    // administrator through 'wsl --unbind-device'.
+    for (const auto& device : m_vmConfig.AssignedDevices)
+    {
+        try
+        {
+            const auto found = wsl::windows::common::deviceassignment::Find(device.c_str());
+            if (!found.has_value() || found->State != wsl::windows::common::deviceassignment::DeviceState::Unbound)
+            {
+                EMIT_USER_WARNING(wsl::shared::Localization::MessageDeviceAssignmentDeviceUnavailable(device));
+                continue;
+            }
+
+            devices.emplace_back(found->DeviceInstancePath);
+        }
+        CATCH_LOG()
+    }
+
+    return devices;
+}
+
 std::wstring WslCoreVm::GenerateConfigJson()
 {
     hcs::ComputeSystem systemSettings{};
@@ -1536,6 +1567,15 @@ std::wstring WslCoreVm::GenerateConfigJson()
             WSL_E_CUSTOM_SYSTEM_DISTRO_ERROR,
             (m_systemDistroDeviceType == LxMiniInitMountDeviceTypeInvalid) ||
                 (!wsl::windows::common::filesystem::FileExists(m_vmConfig.SystemDistroPath.c_str())));
+    }
+
+    // An assigned device needs high MMIO space for its BARs, and a large dGPU aperture needs a lot
+    // of it. The gap can only be set when the VM is created, which is the whole reason this lives
+    // in the service rather than in a plugin.
+    const auto assignedDevices = ResolveAssignedDevices();
+    if (!assignedDevices.empty())
+    {
+        highMmioGapInMB += m_vmConfig.DeviceAssignmentMmioGapMB;
     }
 
     // Add MMIO space for the WSLg virtio shared memory device.
@@ -1823,6 +1863,24 @@ std::wstring WslCoreVm::GenerateConfigJson()
     }
 
     vmSettings.Devices.Scsi["0"] = std::move(scsiController);
+
+    // Assigned PCI devices. Declaring them at create time is what makes the guest see them at all:
+    // a VirtualPci hot-add to a VM that was created without one is rejected by the host.
+    for (const auto& device : assignedDevices)
+    {
+        hcs::VirtualPciDevice pciDevice{};
+        pciDevice.Functions.emplace_back(hcs::MakeVirtualPciFunction(device.c_str()));
+
+        // The key is an instance name of the caller's choosing, not anything the device supplies.
+        GUID instanceGuid{};
+        THROW_IF_FAILED(CoCreateGuid(&instanceGuid));
+
+        const auto instanceId = wsl::shared::string::GuidToString<char>(instanceGuid);
+        vmSettings.Devices.VirtualPci.emplace(instanceId, std::move(pciDevice));
+
+        WSL_LOG(
+            "AssignedDevice", TraceLoggingValue(device.c_str(), "device"), TraceLoggingValue(instanceId.c_str(), "instanceId"));
+    }
 
     // Construct a security descriptor that allows system and the current user.
     wil::unique_hlocal_string userSidString;

@@ -43,6 +43,8 @@ public:
 
     std::vector<LXSS_ENUMERATE_INFO> EnumerateDistributions() const;
 
+    std::vector<LXSS_ASSIGNABLE_DEVICE> EnumerateAssignableDevices(_In_ bool IncludeIneligible) const;
+
     HRESULT
     ExportDistribution(_In_opt_ LPCGUID DistroGuid, _In_ HANDLE FileHandle, _In_ ULONG Flags = 0) const;
 

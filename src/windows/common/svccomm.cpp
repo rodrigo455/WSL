@@ -225,6 +225,23 @@ std::vector<LXSS_ENUMERATE_INFO> wsl::windows::common::SvcComm::EnumerateDistrib
     return DistributionList;
 }
 
+std::vector<LXSS_ASSIGNABLE_DEVICE> wsl::windows::common::SvcComm::EnumerateAssignableDevices(_In_ bool IncludeIneligible) const
+{
+    ClientExecutionContext context;
+
+    wil::unique_cotaskmem_array_ptr<LXSS_ASSIGNABLE_DEVICE> devices;
+    THROW_IF_FAILED(
+        m_userSession->EnumerateAssignableDevices(!!IncludeIneligible, devices.size_address<ULONG>(), &devices, context.OutError()));
+
+    std::vector<LXSS_ASSIGNABLE_DEVICE> deviceList;
+    for (size_t index = 0; index < devices.size(); index += 1)
+    {
+        deviceList.push_back(devices[index]);
+    }
+
+    return deviceList;
+}
+
 HRESULT
 wsl::windows::common::SvcComm::ExportDistribution(_In_opt_ LPCGUID DistroGuid, _In_ HANDLE FileHandle, _In_ ULONG Flags) const
 {

@@ -25,6 +25,7 @@ using wsl::windows::common::ExecutionContext;
 constexpr auto c_processorCapabilities = "ProcessorCapabilities";
 constexpr LPCWSTR c_processorCapabilitiesQuery = L"{ \"PropertyQueries\": {\"ProcessorCapabilities\" : {}}}";
 constexpr LPCWSTR c_scsiResourcePath = L"VirtualMachine/Devices/Scsi/0/Attachments/";
+constexpr LPCWSTR c_virtualPciResourcePath = L"VirtualMachine/Devices/VirtualPci/";
 
 void wsl::windows::common::hcs::AddPlan9Share(
     _In_ HCS_SYSTEM ComputeSystem, _In_ PCWSTR Name, _In_ PCWSTR AccessName, _In_ PCWSTR Path, _In_ UINT32 Port, _In_ Plan9ShareFlags Flags, _In_opt_ HANDLE UserToken)
@@ -64,6 +65,25 @@ void wsl::windows::common::hcs::AddVhd(_In_ HCS_SYSTEM ComputeSystem, _In_ PCWST
     request.Settings.SupportCompressedVolumes = true;
     request.Settings.AlwaysAllowSparseFiles = true;
     request.Settings.SupportEncryptedFiles = true;
+
+    ModifyComputeSystem(ComputeSystem, wsl::shared::ToJsonW(request).c_str());
+}
+
+void wsl::windows::common::hcs::AddVirtualPciDevice(_In_ HCS_SYSTEM ComputeSystem, _In_ const GUID& InstanceId, _In_ PCWSTR DevicePath)
+{
+    ModifySettingRequest<VirtualPciDevice> request{};
+    request.RequestType = ModifyRequestType::Add;
+    request.ResourcePath = c_virtualPciResourcePath + wsl::shared::string::GuidToString<wchar_t>(InstanceId);
+    request.Settings.Functions.emplace_back(MakeVirtualPciFunction(DevicePath));
+
+    ModifyComputeSystem(ComputeSystem, wsl::shared::ToJsonW(request).c_str());
+}
+
+void wsl::windows::common::hcs::RemoveVirtualPciDevice(_In_ HCS_SYSTEM ComputeSystem, _In_ const GUID& InstanceId)
+{
+    ModifySettingRequest<void> request{};
+    request.RequestType = ModifyRequestType::Remove;
+    request.ResourcePath = c_virtualPciResourcePath + wsl::shared::string::GuidToString<wchar_t>(InstanceId);
 
     ModifyComputeSystem(ComputeSystem, wsl::shared::ToJsonW(request).c_str());
 }

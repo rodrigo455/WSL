@@ -195,6 +195,13 @@ public:
     /// </summary>
     IFACEMETHOD(CompactDistribution)(_In_ LPCGUID DistroGuid, _Out_ LXSS_ERROR_INFO* Error) override;
 
+    //
+    // N.B. This queries host state rather than session state, so it is answered here rather than
+    //      being forwarded to LxssUserSessionImpl.
+    //
+    IFACEMETHOD(EnumerateAssignableDevices)
+    (_In_ BOOLEAN IncludeIneligible, _Out_ PULONG DeviceCount, _Out_ LXSS_ASSIGNABLE_DEVICE** Devices, _Out_ LXSS_ERROR_INFO* Error) override;
+
     /// <summary>
     /// Sets the default distribution.
     /// </summary>
